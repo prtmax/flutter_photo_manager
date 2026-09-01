@@ -683,6 +683,10 @@ In generally, a `PHAsset` will have three status:
   In this case, the best practise is to use the `PMProgressHandler`
   to provide a responsive user interface.
 
+To exclude iCloud-only assets from queries, set `onlyLocal: true` on a
+`FilterOptionGroup`. To prevent a file request from starting a network fetch,
+pass `onlyLocal: true` to `getFile`, `loadFile`, or `getOriginBytes`.
+
 ### Entities change notify
 
 Plugin will post entities change events from native,

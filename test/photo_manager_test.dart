@@ -38,6 +38,12 @@ void main() {
     expect(RequestType.all == const RequestType(7), equals(true));
   });
 
+  test('FilterOptionGroup onlyLocal is serialized', () {
+    final filter = FilterOptionGroup(onlyLocal: true);
+    final Map<String, dynamic> map = filter.toMap();
+    expect(map['child']['onlyLocal'], isTrue);
+  });
+
   test('Construct custom plugin', () async {
     final _TestPlugin testPlugin = _TestPlugin();
     PhotoManager.withPlugin(testPlugin);

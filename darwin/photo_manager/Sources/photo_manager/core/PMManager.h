@@ -49,6 +49,7 @@ typedef void (^AssetBlockResult)(PMAssetEntity *, NSObject *);
 
 - (void)getFullSizeFileWithId:(NSString *)assetId
                      isOrigin:(BOOL)isOrigin
+                    onlyLocal:(BOOL)onlyLocal
                       subtype:(int)subtype
                      fileType:(AVFileType)fileType
                 resultHandler:(PMResultHandler *)handler

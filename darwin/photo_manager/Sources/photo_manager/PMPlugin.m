@@ -507,11 +507,13 @@
     } else if ([call.method isEqualToString:@"getFullFile"]) {
         NSString *assetId = call.arguments[@"id"];
         BOOL isOrigin = [call.arguments[@"isOrigin"] boolValue];
+        BOOL onlyLocal = [call.arguments[@"onlyLocal"] boolValue];
         int subtype = [call.arguments[@"subtype"] intValue];
         AVFileType fileType = [PMConvertUtils convertNumberToAVFileType:[call.arguments[@"darwinFileType"] intValue]];
         PMProgressHandler *progressHandler = [self getProgressHandlerFromDict:call.arguments];
         [manager getFullSizeFileWithId:assetId
                               isOrigin:isOrigin
+                             onlyLocal:onlyLocal
                                subtype:subtype
                               fileType:fileType
                          resultHandler:handler

@@ -70,6 +70,13 @@ abstract class PMFilter {
   ///  * [PHFetchOptions.includeHiddenAssets](https://developer.apple.com/documentation/photos/phfetchoptions/includehiddenassets).
   bool includeHiddenAssets = false;
 
+  /// Whether to return only assets whose selected PhotoKit resource is
+  /// currently available on the device.
+  ///
+  /// This option only affects iOS and macOS. It is ignored on Android and
+  /// OpenHarmony, where assets are treated as local by this package.
+  bool onlyLocal = false;
+
   /// The type of the filter.
   BaseFilterType get type;
 
@@ -96,6 +103,7 @@ abstract class PMFilter {
     return <String, dynamic>{
       'containsPathModified': containsPathModified,
       'includeHiddenAssets': includeHiddenAssets,
+      'onlyLocal': onlyLocal,
     };
   }
 }

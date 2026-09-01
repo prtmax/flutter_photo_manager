@@ -633,6 +633,10 @@ final int count = await PhotoManager.getAssetCount(filterOption: filter);
 - `isLocallyAvailable` 等于 `false`，通常意味着资源仅保存在 iCloud 上，或者某些视频尚未导出过。
   在这种情况下，最好使用 `PMProgressHandler` 提供响应式的用户界面。
 
+如果只需要显示本地资源，可在 `FilterOptionGroup` 中设置
+`onlyLocal: true`。调用 `getFile`、`loadFile` 或 `getOriginBytes` 时传入
+`onlyLocal: true`，可避免触发 iCloud 网络下载。
+
 ### 资源变动的通知回调
 
 插件会从原生平台广播资源变更的事件，但是在不同的平台和系统版本之间，事件携带的内容并不相同。

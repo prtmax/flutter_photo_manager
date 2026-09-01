@@ -45,6 +45,12 @@ static NSString *PMResourceTypeName(PHAssetResourceType type) {
     }
 }
 
+@interface PMManager ()
+- (BOOL)isAssetLocallyAvailableForFilter:(PHAsset *)asset;
+- (NSArray<PHAsset *> *)assetsFromFetchResult:(PHFetchResult<PHAsset *> *)result
+                                   onlyLocal:(BOOL)onlyLocal;
+@end
+
 @implementation PMManager {
     PMCacheContainer *cacheContainer;
     
@@ -72,6 +78,55 @@ static NSString *PMResourceTypeName(PHAssetResourceType type) {
         );
     }
     return self;
+}
+
+- (BOOL)isAssetLocallyAvailableForFilter:(PHAsset *)asset {
+    NSArray<PHAssetResource *> *resources = [asset candidateResourcesForFetch:YES
+                                                                      livePhoto:NO];
+    NSFileManager *fileManager = NSFileManager.defaultManager;
+    for (PHAssetResource *candidate in resources) {
+        NSString *originPath = [self makeAssetOutputPath:asset
+                                                resource:candidate
+                                                 isOrigin:YES
+                                                 fileType:nil
+                                                  manager:fileManager];
+        NSString *filePath = [self makeAssetOutputPath:asset
+                                              resource:candidate
+                                               isOrigin:NO
+                                               fileType:nil
+                                                manager:fileManager];
+        if ([fileManager fileExistsAtPath:originPath] ||
+            [fileManager fileExistsAtPath:filePath]) {
+            return YES;
+        }
+    }
+    PHAssetResource *resource = resources.firstObject;
+    if (!resource) {
+        return NO;
+    }
+    @try {
+        return [[resource valueForKey:@"locallyAvailable"] boolValue];
+    } @catch (NSException *exception) {
+        return NO;
+    }
+}
+
+- (NSArray<PHAsset *> *)assetsFromFetchResult:(PHFetchResult<PHAsset *> *)result
+                                   onlyLocal:(BOOL)onlyLocal {
+    if (!onlyLocal) {
+        NSMutableArray<PHAsset *> *assets = [NSMutableArray arrayWithCapacity:result.count];
+        for (PHAsset *asset in result) {
+            [assets addObject:asset];
+        }
+        return assets;
+    }
+    NSMutableArray<PHAsset *> *assets = [NSMutableArray array];
+    for (PHAsset *asset in result) {
+        if ([self isAssetLocallyAvailableForFilter:asset]) {
+            [assets addObject:asset];
+        }
+    }
+    return assets;
 }
 
 - (PHCachingImageManager *)cachingManager {
@@ -139,6 +194,7 @@ static NSString *PMResourceTypeName(PHAssetResourceType type) {
                                options:assetOptions
                                 hasAll:hasAll
                       containsModified:option.containsModified
+                              onlyLocal:option.onlyLocal
                       pathFilterOption:pathFilterOption
         ];
     }
@@ -154,6 +210,7 @@ static NSString *PMResourceTypeName(PHAssetResourceType type) {
                                options:assetOptions
                                 hasAll:hasAll
                       containsModified:option.containsModified
+                              onlyLocal:option.onlyLocal
                       pathFilterOption:pathFilterOption];
     }
     return array;
@@ -170,8 +227,12 @@ static NSString *PMResourceTypeName(PHAssetResourceType type) {
         return 0;
     }
     PHAssetCollection *collection = result[0];
-    NSUInteger count = [collection obtainAssetCount:assetOptions];
-    return count;
+    if (!filterOption.onlyLocal) {
+        return [collection obtainAssetCount:assetOptions];
+    }
+    PHFetchResult<PHAsset *> *assets = [PHAsset fetchAssetsInAssetCollection:collection
+                                                                     options:assetOptions];
+    return [self assetsFromFetchResult:assets onlyLocal:YES].count;
 }
 
 - (void)logCollections:(PHFetchResult *)collections option:(PHFetchOptions *)option {
@@ -192,25 +253,29 @@ static NSString *PMResourceTypeName(PHAssetResourceType type) {
 - (NSUInteger)getAssetCountWithType:(int)type option:(NSObject<PMBaseFilter> *)filter {
     PHFetchOptions *options = [self getAssetOptions:type filterOption:filter];
     PHFetchResult<PHAsset *> *result = [PHAsset fetchAssetsWithOptions:options];
-    return result.count;
+    return filter.onlyLocal
+        ? [self assetsFromFetchResult:result onlyLocal:YES].count
+        : result.count;
 }
 
 - (NSArray<PMAssetEntity *> *)getAssetsWithType:(int)type option:(NSObject<PMBaseFilter> *)option start:(int)start end:(int)end {
     PHFetchOptions *options = [self getAssetOptions:type filterOption:option];
     PHFetchResult<PHAsset *> *result = [PHAsset fetchAssetsWithOptions:options];
+    NSArray<PHAsset *> *assets = [self assetsFromFetchResult:result
+                                                   onlyLocal:option.onlyLocal];
     
     NSUInteger endOffset = end;
-    if (endOffset > result.count) {
-        endOffset = result.count;
+    if (endOffset > assets.count) {
+        endOffset = assets.count;
     }
     
     NSMutableArray<PMAssetEntity*>* array = [NSMutableArray new];
     
     for (NSUInteger i = start; i < endOffset; i++){
-        if (i >= result.count) {
+        if (i >= assets.count) {
             break;
         }
-        PHAsset *asset = result[i];
+        PHAsset *asset = assets[i];
         BOOL needTitle = option ? [option needTitle] : NO;
         PMAssetEntity *pmAsset = [self convertPHAssetToAssetEntity:asset needTitle:needTitle];
         [array addObject: pmAsset];
@@ -279,6 +344,7 @@ static NSString *PMResourceTypeName(PHAssetResourceType type) {
                          options:(PHFetchOptions *)options
                           hasAll:(BOOL)hasAll
                 containsModified:(BOOL)containsModified
+                       onlyLocal:(BOOL)onlyLocal
                 pathFilterOption:(PMPathFilterOption *)pathFilterOption {
     for (id collection in result) {
         if (![collection isKindOfClass:[PHAssetCollection class]]) {
@@ -305,11 +371,13 @@ static NSString *PMResourceTypeName(PHAssetResourceType type) {
         PMAssetPathEntity *entity = [PMAssetPathEntity entityWithId:localIdentifier name:localizedTitle assetCollection:assetCollection];
         entity.isAll = assetCollection.assetCollectionSubtype == PHAssetCollectionSubtypeSmartAlbumUserLibrary;
         
-        if (containsModified) {
+        if (containsModified || onlyLocal) {
             PHFetchResult<PHAsset *> *fetchResult = [PHAsset fetchAssetsInAssetCollection:assetCollection options:options];
-            entity.assetCount = fetchResult.count;
-            if (fetchResult.count > 0) {
-                PHAsset *asset = fetchResult.firstObject;
+            NSArray<PHAsset *> *assets = [self assetsFromFetchResult:fetchResult
+                                                           onlyLocal:onlyLocal];
+            entity.assetCount = assets.count;
+            if (assets.count > 0) {
+                PHAsset *asset = assets.firstObject;
                 entity.modifiedDate = (long) asset.modificationDate.timeIntervalSince1970;
             }
         }
@@ -343,8 +411,10 @@ static NSString *PMResourceTypeName(PHAssetResourceType type) {
     PHAssetCollection *collection = fetchResult.firstObject;
     PHFetchOptions *assetOptions = [self getAssetOptions:type filterOption:filterOption];
     NSArray<NSSortDescriptor *> *sortDescriptors = assetOptions.sortDescriptors;
-    PHFetchResult<PHAsset *> *assetArray = [PHAsset fetchAssetsInAssetCollection:collection
-                                                                         options:assetOptions];
+    PHFetchResult<PHAsset *> *assetFetchResult = [PHAsset fetchAssetsInAssetCollection:collection
+                                                                                 options:assetOptions];
+    NSArray<PHAsset *> *assetArray = [self assetsFromFetchResult:assetFetchResult
+                                                      onlyLocal:filterOption.onlyLocal];
     
     if (assetArray.count == 0) {
         return result;
@@ -396,8 +466,10 @@ static NSString *PMResourceTypeName(PHAssetResourceType type) {
     PHAssetCollection *collection = fetchResult.firstObject;
     PHFetchOptions *assetOptions = [self getAssetOptions:(int) type filterOption:filterOption];
     NSArray<NSSortDescriptor *> *sortDescriptors = assetOptions.sortDescriptors;
-    PHFetchResult<PHAsset *> *assetArray = [PHAsset fetchAssetsInAssetCollection:collection
-                                                                         options:assetOptions];
+    PHFetchResult<PHAsset *> *assetFetchResult = [PHAsset fetchAssetsInAssetCollection:collection
+                                                                                 options:assetOptions];
+    NSArray<PHAsset *> *assetArray = [self assetsFromFetchResult:assetFetchResult
+                                                      onlyLocal:filterOption.onlyLocal];
     
     if (assetArray.count == 0) {
         return result;
@@ -599,6 +671,7 @@ static NSString *PMResourceTypeName(PHAssetResourceType type) {
 
 - (void)getFullSizeFileWithId:(NSString *)assetId
                      isOrigin:(BOOL)isOrigin
+                    onlyLocal:(BOOL)onlyLocal
                       subtype:(int)subtype
                      fileType:(AVFileType)fileType
                 resultHandler:(PMResultHandler *)handler
@@ -606,30 +679,48 @@ static NSString *PMResourceTypeName(PHAssetResourceType type) {
     PMAssetEntity *entity = [self getAssetEntity:assetId];
     if (entity && entity.phAsset) {
         PHAsset *asset = entity.phAsset;
+        if (onlyLocal && ![self entityIsLocallyAvailable:assetId
+                                              resource:nil
+                                              isOrigin:isOrigin
+                                               subtype:subtype
+                                              fileType:fileType]) {
+            [handler replyError:[NSError errorWithDomain:@"PMPhotoManager"
+                                                     code:-3
+                                                 userInfo:@{
+                NSLocalizedDescriptionKey: @"The asset is not locally available.",
+            }]];
+            return;
+        }
         if (@available(iOS 9.1, *)) {
             if (asset.isLivePhoto && (subtype & PHAssetMediaSubtypePhotoLive) == PHAssetMediaSubtypePhotoLive) {
-                [self fetchLivePhotosFile:asset handler:handler progressHandler:progressHandler withScheme:NO fileType:fileType];
+                [self fetchLivePhotosFile:asset handler:handler progressHandler:progressHandler withScheme:NO fileType:fileType onlyLocal:onlyLocal];
                 return;
             }
         }
         if (@available(macOS 14.0, *)) {
             if (asset.isLivePhoto && (subtype & PHAssetMediaSubtypePhotoLive) == PHAssetMediaSubtypePhotoLive) {
-                [self fetchLivePhotosFile:asset handler:handler progressHandler:progressHandler withScheme:NO fileType:fileType];
+                [self fetchLivePhotosFile:asset handler:handler progressHandler:progressHandler withScheme:NO fileType:fileType onlyLocal:onlyLocal];
                 return;
             }
         }
         if (asset.isVideo) {
             if (isOrigin) {
-                [self fetchOriginVideoFile:asset handler:handler progressHandler:progressHandler fileType:fileType];
+                [self fetchOriginVideoFile:asset handler:handler progressHandler:progressHandler fileType:fileType onlyLocal:onlyLocal];
             } else {
-                [self fetchFullSizeVideo:asset handler:handler progressHandler:progressHandler withScheme:NO fileType:fileType];
+                [self fetchFullSizeVideo:asset handler:handler progressHandler:progressHandler withScheme:NO fileType:fileType onlyLocal:onlyLocal];
             }
             return;
         }
         if (isOrigin) {
-            [self fetchOriginImageFile:asset resultHandler:handler progressHandler:progressHandler];
+            [self fetchOriginImageFile:asset
+                         resultHandler:handler
+                       progressHandler:progressHandler
+                           onlyLocal:onlyLocal];
         } else {
-            [self fetchFullSizeImageFile:asset resultHandler:handler progressHandler:progressHandler];
+            [self fetchFullSizeImageFile:asset
+                          resultHandler:handler
+                        progressHandler:progressHandler
+                            onlyLocal:onlyLocal];
         }
         return;
     }
@@ -640,7 +731,8 @@ static NSString *PMResourceTypeName(PHAssetResourceType type) {
                     handler:(PMResultHandler *)handler
             progressHandler:(NSObject <PMProgressHandlerProtocol> *)progressHandler
                  withScheme:(BOOL)withScheme
-                   fileType:(AVFileType)fileType {
+                   fileType:(AVFileType)fileType
+                  onlyLocal:(BOOL)onlyLocal {
     NSArray<PHAssetResource *> *candidates = [asset candidateResourcesForFetch:YES livePhoto:YES];
     if (candidates.count == 0) {
         [handler replyError:[NSString stringWithFormat:@"Asset %@ does not have a Live-Photo resource.", asset.localIdentifier]];
@@ -663,6 +755,7 @@ static NSString *PMResourceTypeName(PHAssetResourceType type) {
                             withScheme:withScheme
                               isOrigin:YES
                               fileType:fileType
+                             onlyLocal:onlyLocal
                                  block:^(NSString *path, NSObject *error) {
         if (path) {
             [handler reply:path];
@@ -676,7 +769,8 @@ static NSString *PMResourceTypeName(PHAssetResourceType type) {
 - (void)fetchOriginVideoFile:(PHAsset *)asset
                      handler:(PMResultHandler *)handler
              progressHandler:(NSObject <PMProgressHandlerProtocol> *)progressHandler
-                    fileType:(AVFileType)fileType {
+                    fileType:(AVFileType)fileType
+                   onlyLocal:(BOOL)onlyLocal {
     NSArray<PHAssetResource *> *candidates = [asset candidateResourcesForFetch:YES livePhoto:NO];
     if (candidates.count == 0) {
         [handler replyError:[NSString stringWithFormat:@"Asset %@ does not have available resources.", asset.localIdentifier]];
@@ -700,6 +794,7 @@ static NSString *PMResourceTypeName(PHAssetResourceType type) {
                             withScheme:NO
                               isOrigin:YES
                               fileType:fileType
+                             onlyLocal:onlyLocal
                                  block:^(NSString *path, NSObject *walkerError) {
         if (path) {
             [handler reply:path];
@@ -714,6 +809,7 @@ static NSString *PMResourceTypeName(PHAssetResourceType type) {
                                         isOrigin:YES
                                       withScheme:NO
                                         fileType:fileType
+                                       onlyLocal:onlyLocal
                                  progressHandler:progressHandler
                                            block:^(NSString *fbPath, NSObject *fbError) {
             if (fbPath) {
@@ -806,6 +902,7 @@ static NSString *PMResourceTypeName(PHAssetResourceType type) {
                           withScheme:(BOOL)withScheme
                             isOrigin:(BOOL)isOrigin
                             fileType:(AVFileType)fileType
+                           onlyLocal:(BOOL)onlyLocal
                                block:(void (^)(NSString *path, NSObject *error))block {
     [self fetchVideoFileFromCandidates:candidates
                                atIndex:0
@@ -814,8 +911,9 @@ static NSString *PMResourceTypeName(PHAssetResourceType type) {
                                  asset:asset
                        progressHandler:progressHandler
                             withScheme:withScheme
-                              isOrigin:isOrigin
-                              fileType:fileType
+                               isOrigin:isOrigin
+                               fileType:fileType
+                              onlyLocal:onlyLocal
                                  block:block];
 }
 
@@ -825,9 +923,10 @@ static NSString *PMResourceTypeName(PHAssetResourceType type) {
                            lastError:(NSObject *)lastError
                                asset:(PHAsset *)asset
                      progressHandler:(NSObject <PMProgressHandlerProtocol> *)progressHandler
-                          withScheme:(BOOL)withScheme
-                            isOrigin:(BOOL)isOrigin
-                            fileType:(AVFileType)fileType
+                             withScheme:(BOOL)withScheme
+                               isOrigin:(BOOL)isOrigin
+                               fileType:(AVFileType)fileType
+                              onlyLocal:(BOOL)onlyLocal
                                block:(void (^)(NSString *path, NSObject *error))block {
     if (index >= candidates.count) {
         block(nil, [self composeFetchError:lastError asset:asset attempted:attempted]);
@@ -837,12 +936,13 @@ static NSString *PMResourceTypeName(PHAssetResourceType type) {
     [attempted addObject:PMResourceTypeName(resource.type)];
     __weak typeof(self) weakSelf = self;
     [self fetchVideoResourceToFile:asset
-                          resource:resource
-                   progressHandler:progressHandler
-                        withScheme:withScheme
-                          isOrigin:isOrigin
-                          fileType:fileType
-                             block:^(NSString *path, NSObject *error) {
+                           resource:resource
+                     progressHandler:progressHandler
+                          withScheme:withScheme
+                            isOrigin:isOrigin
+                            fileType:fileType
+                           onlyLocal:onlyLocal
+                               block:^(NSString *path, NSObject *error) {
         __strong typeof(weakSelf) strongSelf = weakSelf;
         if (!strongSelf) { return; }
         if (path) {
@@ -858,9 +958,10 @@ static NSString *PMResourceTypeName(PHAssetResourceType type) {
                                        lastError:error
                                            asset:asset
                                  progressHandler:progressHandler
-                                      withScheme:withScheme
-                                        isOrigin:isOrigin
-                                        fileType:fileType
+                                       withScheme:withScheme
+                                         isOrigin:isOrigin
+                                         fileType:fileType
+                                        onlyLocal:onlyLocal
                                            block:block];
     }];
 }
@@ -869,12 +970,14 @@ static NSString *PMResourceTypeName(PHAssetResourceType type) {
                    handler:(PMResultHandler *)handler
            progressHandler:(NSObject <PMProgressHandlerProtocol> *)progressHandler
                 withScheme:(BOOL)withScheme
-                  fileType:(AVFileType)fileType {
+                  fileType:(AVFileType)fileType
+                 onlyLocal:(BOOL)onlyLocal {
     [self exportAssetToFile:asset
             resultHandler:handler
             progressHandler:progressHandler
-                 withScheme:withScheme
-                   fileType:fileType
+                   withScheme:withScheme
+                     fileType:fileType
+                    onlyLocal:onlyLocal
                       block:^(NSString *path, NSObject *error) {
         if (path) {
             [handler reply:path];
@@ -894,6 +997,7 @@ static NSString *PMResourceTypeName(PHAssetResourceType type) {
                             isOrigin:(BOOL)isOrigin
                           withScheme:(BOOL)withScheme
                             fileType:(AVFileType)fileType
+                           onlyLocal:(BOOL)onlyLocal
                      progressHandler:(NSObject <PMProgressHandlerProtocol> *)progressHandler
                                block:(void (^)(NSString *path, NSObject *error))block {
     if (!asset.isVideo) {
@@ -916,7 +1020,7 @@ static NSString *PMResourceTypeName(PHAssetResourceType type) {
 
     PHVideoRequestOptions *options = [PHVideoRequestOptions new];
     [options setDeliveryMode:PHVideoRequestOptionsDeliveryModeHighQualityFormat];
-    [options setNetworkAccessAllowed:YES];
+    [options setNetworkAccessAllowed:!onlyLocal];
     // Match the walker's rendered-first preference: if the caller asked for
     // the current version, the walker prefers the rendered/`fullSize`
     // resource, and this fallback should hit the same conceptual bytes.
@@ -995,12 +1099,13 @@ static NSString *PMResourceTypeName(PHAssetResourceType type) {
 }
 
 - (void)fetchVideoResourceToFile:(PHAsset *)asset
-                        resource:(PHAssetResource *)resource
-                 progressHandler:(NSObject <PMProgressHandlerProtocol> *)progressHandler
-                      withScheme:(BOOL)withScheme
-                        isOrigin:(BOOL)isOrigin
-                        fileType:(AVFileType)fileType
-                           block:(void (^)(NSString *path, NSObject *error))block {
+                         resource:(PHAssetResource *)resource
+                   progressHandler:(NSObject <PMProgressHandlerProtocol> *)progressHandler
+                        withScheme:(BOOL)withScheme
+                          isOrigin:(BOOL)isOrigin
+                          fileType:(AVFileType)fileType
+                         onlyLocal:(BOOL)onlyLocal
+                             block:(void (^)(NSString *path, NSObject *error))block {
     NSFileManager *fileManager = NSFileManager.defaultManager;
     NSString *path = [self makeAssetOutputPath:asset
                                       resource:resource
@@ -1053,7 +1158,7 @@ static NSString *PMResourceTypeName(PHAssetResourceType type) {
     }
     
     PHAssetResourceRequestOptions *options = [PHAssetResourceRequestOptions new];
-    [options setNetworkAccessAllowed:YES];
+    [options setNetworkAccessAllowed:!onlyLocal];
     
     __block double lastProgress = 0.0;
     // `Prepare` is emitted once from the caller so multi-candidate walks don't
@@ -1136,6 +1241,7 @@ static NSString *PMResourceTypeName(PHAssetResourceType type) {
           progressHandler:(NSObject <PMProgressHandlerProtocol> *)progressHandler
                withScheme:(BOOL)withScheme
                  fileType:(AVFileType)fileType
+                onlyLocal:(BOOL)onlyLocal
                     block:(void (^)(NSString *path, NSObject *error))block {
     NSFileManager *manager = NSFileManager.defaultManager;
     NSString *path = [self makeAssetOutputPath:asset resource:nil isOrigin:NO fileType:fileType manager:manager];
@@ -1152,7 +1258,7 @@ static NSString *PMResourceTypeName(PHAssetResourceType type) {
 
     PHVideoRequestOptions *options = [PHVideoRequestOptions new];
     [options setDeliveryMode:PHVideoRequestOptionsDeliveryModeAutomatic];
-    [options setNetworkAccessAllowed:YES];
+    [options setNetworkAccessAllowed:!onlyLocal];
     [options setVersion:PHVideoRequestOptionsVersionCurrent];
 
     __block double lastProgress = 0.0;
@@ -1454,7 +1560,10 @@ static NSString *PMResourceTypeName(PHAssetResourceType type) {
         || [uti isEqualToString:@"public.png"];
 }
 
-- (void)fetchOriginImageFile:(PHAsset *)asset resultHandler:(PMResultHandler *)handler progressHandler:(NSObject <PMProgressHandlerProtocol> *)progressHandler {
+- (void)fetchOriginImageFile:(PHAsset *)asset
+               resultHandler:(PMResultHandler *)handler
+             progressHandler:(NSObject <PMProgressHandlerProtocol> *)progressHandler
+                   onlyLocal:(BOOL)onlyLocal {
     NSArray<PHAssetResource *> *candidates = [asset candidateResourcesForFetch:YES livePhoto:NO];
     if (candidates.count == 0) {
         [handler replyError:[NSString stringWithFormat:@"Asset %@ does not have available resources.", asset.localIdentifier]];
@@ -1501,6 +1610,7 @@ static NSString *PMResourceTypeName(PHAssetResourceType type) {
                                        lastError:seedError
                                            asset:asset
                                  progressHandler:progressHandler
+                                      onlyLocal:onlyLocal
                                            block:^(NSString *walkerPath, NSObject *walkerError) {
             if (walkerPath) {
                 [handler reply:walkerPath];
@@ -1526,6 +1636,7 @@ static NSString *PMResourceTypeName(PHAssetResourceType type) {
             // attempt — matches historical behaviour for non-raster assets.
             [inner fallbackFetchImageDataFor:asset
                                     isOrigin:YES
+                                  onlyLocal:onlyLocal
                              progressHandler:progressHandler
                                        block:^(NSString *fbPath, NSObject *fbError) {
                 if (fbPath) {
@@ -1544,6 +1655,7 @@ static NSString *PMResourceTypeName(PHAssetResourceType type) {
     }
     [self fallbackFetchImageDataFor:asset
                             isOrigin:YES
+                          onlyLocal:onlyLocal
                      progressHandler:progressHandler
                                block:^(NSString *primaryPath, NSObject *primaryError) {
         if (primaryPath) {
@@ -1560,6 +1672,7 @@ static NSString *PMResourceTypeName(PHAssetResourceType type) {
                            lastError:(NSObject *)lastError
                                asset:(PHAsset *)asset
                      progressHandler:(NSObject <PMProgressHandlerProtocol> *)progressHandler
+                           onlyLocal:(BOOL)onlyLocal
                                block:(void (^)(NSString *path, NSObject *error))block {
     if (index >= candidates.count) {
         block(nil, [self composeFetchError:lastError asset:asset attempted:attempted]);
@@ -1571,6 +1684,7 @@ static NSString *PMResourceTypeName(PHAssetResourceType type) {
     [self writeImageResourceToFile:resource
                              asset:asset
                    progressHandler:progressHandler
+                          onlyLocal:onlyLocal
                              block:^(NSString *path, NSObject *error) {
         __strong typeof(weakSelf) strongSelf = weakSelf;
         if (!strongSelf) { return; }
@@ -1587,6 +1701,7 @@ static NSString *PMResourceTypeName(PHAssetResourceType type) {
                                        lastError:error
                                            asset:asset
                                  progressHandler:progressHandler
+                                      onlyLocal:onlyLocal
                                            block:block];
     }];
 }
@@ -1594,6 +1709,7 @@ static NSString *PMResourceTypeName(PHAssetResourceType type) {
 - (void)writeImageResourceToFile:(PHAssetResource *)imageResource
                            asset:(PHAsset *)asset
                  progressHandler:(NSObject <PMProgressHandlerProtocol> *)progressHandler
+                        onlyLocal:(BOOL)onlyLocal
                            block:(void (^)(NSString *path, NSObject *error))block {
     NSFileManager *fileManager = NSFileManager.defaultManager;
     NSString *path = [self makeAssetOutputPath:asset
@@ -1608,7 +1724,7 @@ static NSString *PMResourceTypeName(PHAssetResourceType type) {
     }
 
     PHAssetResourceRequestOptions *options = [PHAssetResourceRequestOptions new];
-    [options setNetworkAccessAllowed:YES];
+    [options setNetworkAccessAllowed:!onlyLocal];
 
     __block double lastProgress = 0.0;
     // `Prepare` is emitted once from the caller so multi-candidate walks don't
@@ -1670,6 +1786,7 @@ static NSString *PMResourceTypeName(PHAssetResourceType type) {
 // the raw image bytes verbatim, so there is no JPEG recompression.
 - (void)fallbackFetchImageDataFor:(PHAsset *)asset
                          isOrigin:(BOOL)isOrigin
+                        onlyLocal:(BOOL)onlyLocal
                   progressHandler:(NSObject <PMProgressHandlerProtocol> *)progressHandler
                             block:(void (^)(NSString *path, NSObject *error))block {
     NSFileManager *manager = NSFileManager.defaultManager;
@@ -1683,7 +1800,7 @@ static NSString *PMResourceTypeName(PHAssetResourceType type) {
 
     PHImageRequestOptions *options = [PHImageRequestOptions new];
     [options setDeliveryMode:PHImageRequestOptionsDeliveryModeHighQualityFormat];
-    [options setNetworkAccessAllowed:YES];
+    [options setNetworkAccessAllowed:!onlyLocal];
     [options setSynchronous:NO];
     // Match the walker's rendered-first preference (see the equivalent note
     // on `fallbackFetchVideoViaAVAsset`).
@@ -1790,10 +1907,11 @@ static NSString *PMResourceTypeName(PHAssetResourceType type) {
 
 - (void)fetchFullSizeImageFile:(PHAsset *)asset
                  resultHandler:(PMResultHandler *)handler
-               progressHandler:(NSObject <PMProgressHandlerProtocol> *)progressHandler {
+               progressHandler:(NSObject <PMProgressHandlerProtocol> *)progressHandler
+                     onlyLocal:(BOOL)onlyLocal {
     PHImageRequestOptions *options = [PHImageRequestOptions new];
     [options setDeliveryMode:PHImageRequestOptionsDeliveryModeHighQualityFormat];
-    [options setNetworkAccessAllowed:YES];
+    [options setNetworkAccessAllowed:!onlyLocal];
     [options setResizeMode:PHImageRequestOptionsResizeModeNone];
     [options setSynchronous:NO];
     [options setVersion:PHImageRequestOptionsVersionCurrent];
@@ -2622,7 +2740,7 @@ static NSString *PMResourceTypeName(PHAssetResourceType type) {
         if ((asset.mediaSubtypes & PHAssetMediaSubtypePhotoLive) == PHAssetMediaSubtypePhotoLive) {
             // https://github.com/fluttercandies/flutter_photo_manager/issues/1196
             if (@available(iOS 18.0, *)) {
-                [self fetchLivePhotosFile:asset handler:handler progressHandler:progressHandler withScheme:YES fileType:nil];
+                [self fetchLivePhotosFile:asset handler:handler progressHandler:progressHandler withScheme:YES fileType:nil onlyLocal:NO];
                 return;
             }
             PHAssetResource *resource = [asset getLivePhotosResource];
@@ -2631,7 +2749,7 @@ static NSString *PMResourceTypeName(PHAssetResourceType type) {
                 [handler reply:url.absoluteString];
                 return;
             }
-            [self fetchLivePhotosFile:asset handler:handler progressHandler:progressHandler withScheme:YES fileType:nil];
+            [self fetchLivePhotosFile:asset handler:handler progressHandler:progressHandler withScheme:YES fileType:nil onlyLocal:NO];
             return;
         }
     }
@@ -2643,13 +2761,13 @@ static NSString *PMResourceTypeName(PHAssetResourceType type) {
                 [handler reply:url.absoluteString];
                 return;
             }
-            [self fetchLivePhotosFile:asset handler:handler progressHandler:progressHandler withScheme:YES fileType:nil];
+            [self fetchLivePhotosFile:asset handler:handler progressHandler:progressHandler withScheme:YES fileType:nil onlyLocal:NO];
             return;
         }
     }
     
     if (asset.isVideo) {
-        [self fetchFullSizeVideo:asset handler:handler progressHandler:progressHandler withScheme:YES fileType:nil];
+        [self fetchFullSizeVideo:asset handler:handler progressHandler:progressHandler withScheme:YES fileType:nil onlyLocal:NO];
     } else {
         [handler replyError:@"Only video type of assets can get a media url."];
         [self notifyProgress:progressHandler progress:0 state:PMProgressStateFailed];
@@ -2778,6 +2896,7 @@ static NSString *PMResourceTypeName(PHAssetResourceType type) {
                         withScheme:NO
                           isOrigin:isOrigin
                           fileType:fileType
+                         onlyLocal:NO
                              block:^(NSString *path, NSObject *error) {
         if (path) {
             [handler reply:path];

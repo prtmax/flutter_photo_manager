@@ -17,6 +17,7 @@ import 'filter_options.dart';
 ///
 /// Additionally, you can specify whether to include modified path results, whether to include live photos,
 /// or whether to only include live photos, using the appropriate properties of this object.
+/// Set [onlyLocal] to exclude iCloud-only assets on iOS/macOS.
 ///
 /// Finally, you can use the [orders] property to specify sorting options for the results.
 class FilterOptionGroup extends PMFilter {
@@ -33,6 +34,7 @@ class FilterOptionGroup extends PMFilter {
   /// * `createTimeCond`: The condition for filtering asset creation time. See [DateTimeCond] for more information. Defaults to `DateTimeCond.def()`.
   /// * `updateTimeCond`: The condition for filtering asset update time. See [DateTimeCond] for more information. By default, this option is ignored.
   /// * `orders`: A list of options for sorting the results. Defaults to an empty list.
+  /// * `onlyLocal`: Whether to include only locally available assets on iOS/macOS.
   FilterOptionGroup({
     FilterOption imageOption = const FilterOption(),
     FilterOption videoOption = const FilterOption(),
@@ -48,9 +50,11 @@ class FilterOptionGroup extends PMFilter {
     DateTimeCond? updateTimeCond,
     List<OrderOption> orders = const <OrderOption>[],
     bool includeHiddenAssets = false,
+    bool onlyLocal = false,
   }) {
     super.containsPathModified = containsPathModified;
     super.includeHiddenAssets = includeHiddenAssets;
+    super.onlyLocal = onlyLocal;
     _map[AssetType.image] = imageOption;
     _map[AssetType.video] = videoOption;
     _map[AssetType.audio] = audioOption;
@@ -143,6 +147,7 @@ class FilterOptionGroup extends PMFilter {
     containsPathModified = other.containsPathModified;
     containsLivePhotos = other.containsLivePhotos;
     includeHiddenAssets = other.includeHiddenAssets;
+    onlyLocal = other.onlyLocal;
     onlyLivePhotos = other.onlyLivePhotos;
     createTimeCond = other.createTimeCond;
     updateTimeCond = other.updateTimeCond;
@@ -201,6 +206,7 @@ class FilterOptionGroup extends PMFilter {
     FilterOption? audioOption,
     bool? containsPathModified,
     bool? includeHiddenAssets,
+    bool? onlyLocal,
     @Deprecated(
       'The option will be enabled by default. '
       'This will be removed in v4.0.0',
@@ -221,6 +227,7 @@ class FilterOptionGroup extends PMFilter {
     updateTimeCond ??= this.updateTimeCond;
     orders ??= this.orders;
     includeHiddenAssets ??= this.includeHiddenAssets;
+    onlyLocal ??= this.onlyLocal;
 
     final FilterOptionGroup result = FilterOptionGroup()
       ..setOption(AssetType.image, imageOption!)
@@ -228,6 +235,7 @@ class FilterOptionGroup extends PMFilter {
       ..setOption(AssetType.audio, audioOption!)
       ..containsPathModified = containsPathModified
       ..includeHiddenAssets = includeHiddenAssets
+      ..onlyLocal = onlyLocal
       ..containsLivePhotos = containsLivePhotos
       ..onlyLivePhotos = onlyLivePhotos
       ..createTimeCond = createTimeCond

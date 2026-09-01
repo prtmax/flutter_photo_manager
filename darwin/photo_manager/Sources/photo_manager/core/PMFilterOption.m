@@ -5,7 +5,7 @@
 #import "PMLogUtils.h"
 
 @implementation PMFilterOptionGroup {
-
+    BOOL _onlyLocal;
 }
 
 - (NSArray<NSSortDescriptor *> *)sortCond {
@@ -164,6 +164,14 @@
     return options;
 }
 
+- (BOOL)onlyLocal {
+    return _onlyLocal;
+}
+
+- (void)setOnlyLocal:(BOOL)value {
+    _onlyLocal = value;
+}
+
 - (BOOL)needTitle {
     return self.videoOption.needTitle || self.imageOption.needTitle;
 }
@@ -307,6 +315,10 @@
 
 - (BOOL)containsModified {
     return [self.params[@"containsPathModified"] boolValue];
+}
+
+- (BOOL)onlyLocal {
+    return [self.params[@"onlyLocal"] boolValue];
 }
 
 - (BOOL)needTitle {

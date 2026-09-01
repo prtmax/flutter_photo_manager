@@ -13,4 +13,6 @@
 
 - (BOOL) needTitle;
 
+- (BOOL) onlyLocal;
+
 @end

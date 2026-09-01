@@ -631,6 +631,8 @@ class AssetEntity {
   /// [darwinFileType] will try to define the export format when
   /// exporting assets, such as exporting a MOV file to MP4.
   ///
+  /// [onlyLocal] prevents iOS/macOS from downloading an iCloud-only asset.
+  ///
   /// See also:
   ///  * [file] which can obtain the compressed file.
   ///  * [fileWithSubtype] which can obtain the compressed file with subtype.
@@ -639,6 +641,7 @@ class AssetEntity {
   ///  * [cancelToken] is used to cancel the file loading process.
   Future<File?> loadFile({
     bool isOrigin = true,
+    bool onlyLocal = false,
     bool withSubtype = false,
     PMProgressHandler? progressHandler,
     PMCancelToken? cancelToken,
@@ -646,6 +649,7 @@ class AssetEntity {
   }) {
     return getFile(
       isOrigin: isOrigin,
+      onlyLocal: onlyLocal,
       subtype: withSubtype ? subtype : 0,
       progressHandler: progressHandler,
       darwinFileType: darwinFileType,
@@ -830,6 +834,7 @@ class AssetEntity {
   /// Obtain the file of the asset.
   ///
   ///  * [isOrigin] is used to obtain the origin file.
+  ///  * [onlyLocal] prevents iOS/macOS from downloading an iCloud-only asset.
   ///  * [progressHandler] is used to handle the progress of the file loading process.
   ///  * [subtype] is used to obtain the file with subtype.
   ///  * [darwinFileType] will try to define the export format when
@@ -837,6 +842,7 @@ class AssetEntity {
   ///  * [cancelToken] is used to cancel the file loading process.
   Future<File?> getFile({
     bool isOrigin = false,
+    bool onlyLocal = false,
     PMProgressHandler? progressHandler,
     int subtype = 0,
     PMDarwinAVFileType? darwinFileType,
@@ -852,6 +858,7 @@ class AssetEntity {
     final String? path = await plugin.getFullFile(
       id,
       isOrigin: isOrigin,
+      onlyLocal: onlyLocal,
       progressHandler: progressHandler,
       subtype: subtype,
       darwinFileType: darwinFileType,
@@ -870,9 +877,11 @@ class AssetEntity {
   ///
   ///  * [progressHandler] is used to handle the progress of the raw data loading process.
   ///  * [cancelToken] is used to cancel the raw data loading process.
+  ///  * [onlyLocal] prevents iOS/macOS from downloading an iCloud-only asset.
   Future<typed_data.Uint8List?> getOriginBytes({
     PMProgressHandler? progressHandler,
     PMCancelToken? cancelToken,
+    bool onlyLocal = false,
   }) async {
     assert(
       _platformMatched,
@@ -898,7 +907,12 @@ class AssetEntity {
         cancelToken: cancelToken,
       );
     }
-    final File? file = await originFile;
+    final File? file = await getFile(
+      isOrigin: true,
+      onlyLocal: onlyLocal,
+      progressHandler: progressHandler,
+      cancelToken: cancelToken,
+    );
     return file?.readAsBytes();
   }
 

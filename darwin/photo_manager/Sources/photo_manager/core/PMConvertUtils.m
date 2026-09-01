@@ -144,6 +144,7 @@
         container.containsLivePhotos = [map[@"containsLivePhotos"] boolValue];
         container.onlyLivePhotos = [map[@"onlyLivePhotos"] boolValue];
         container.includeHiddenAssets = [map[@"includeHiddenAssets"] boolValue];
+        container.onlyLocal = [map[@"onlyLocal"] boolValue];
         
         NSArray *sortArray = map[@"orders"];
         [container injectSortArray:sortArray];

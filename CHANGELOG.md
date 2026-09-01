@@ -11,6 +11,8 @@ To know more about breaking changes, see the [Migration Guide][].
 **Features**
 
 - Add `AndroidEditor.renameAsset` to rename an asset by updating its MediaStore `DISPLAY_NAME` on Android (#1314).
+- Add `PMFilter.onlyLocal` and file-loading `onlyLocal` controls to avoid
+  listing or downloading iCloud-only assets on iOS/macOS.
 
 **Fixes**
 
