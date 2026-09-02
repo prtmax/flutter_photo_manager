@@ -635,7 +635,12 @@ final int count = await PhotoManager.getAssetCount(filterOption: filter);
 
 如果只需要显示本地资源，可在 `FilterOptionGroup` 中设置
 `onlyLocal: true`。调用 `getFile`、`loadFile` 或 `getOriginBytes` 时传入
-`onlyLocal: true`，可避免触发 iCloud 网络下载。
+`onlyLocal: true`，可避免触发 iCloud 网络下载。获取缩略图时，可将
+`onlyLocal: true` 传给 `thumbnailDataWithSize` 或
+`thumbnailDataWithOption`；获取 Live Photo 子类型时长和调整数据时，分别
+传给 `durationWithOptions` 和 `asset.darwin.getAdjustmentData`。获取基础调整
+文件时，也可以将其传给 `asset.darwin.getBaseFile`。
+获取视频或 Live Photo 播放地址时，也可以传给 `getMediaUrl`。
 
 ### 资源变动的通知回调
 

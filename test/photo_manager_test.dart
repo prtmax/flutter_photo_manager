@@ -44,6 +44,62 @@ void main() {
     expect(map['child']['onlyLocal'], isTrue);
   });
 
+  test('thumbnail onlyLocal is forwarded to the channel', () async {
+    MethodCall? capturedCall;
+    final Uint8List payload = Uint8List.fromList(<int>[1, 2, 3]);
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+      const MethodChannel(PMConstants.channelPrefix),
+      (MethodCall call) async {
+        capturedCall = call;
+        return payload;
+      },
+    );
+
+    final entity = AssetEntity(
+      id: 'asset-id',
+      typeInt: AssetType.image.index,
+      width: 1,
+      height: 1,
+    );
+
+    await expectLater(
+      entity.thumbnailDataWithSize(
+        const ThumbnailSize.square(100),
+        onlyLocal: true,
+      ),
+      completion(payload),
+    );
+    expect(capturedCall?.method, PMConstants.mGetThumb);
+    expect(capturedCall?.arguments['onlyLocal'], isTrue);
+  });
+
+  test('media URL onlyLocal is forwarded to the channel', () async {
+    MethodCall? capturedCall;
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+      const MethodChannel(PMConstants.channelPrefix),
+      (MethodCall call) async {
+        capturedCall = call;
+        return 'file:///tmp/asset.mov';
+      },
+    );
+
+    final entity = AssetEntity(
+      id: 'asset-id',
+      typeInt: AssetType.video.index,
+      width: 1,
+      height: 1,
+    );
+
+    await expectLater(
+      entity.getMediaUrl(onlyLocal: true),
+      completion('file:///tmp/asset.mov'),
+    );
+    expect(capturedCall?.method, PMConstants.mGetMediaUrl);
+    expect(capturedCall?.arguments['onlyLocal'], isTrue);
+  });
+
   test('Construct custom plugin', () async {
     final _TestPlugin testPlugin = _TestPlugin();
     PhotoManager.withPlugin(testPlugin);
@@ -117,6 +173,36 @@ void main() {
   });
 
   test(
+    'duration onlyLocal is forwarded to the getDurationWithOptions channel',
+    () async {
+      MethodCall? capturedCall;
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(
+        const MethodChannel(PMConstants.channelPrefix),
+        (MethodCall call) async {
+          capturedCall = call;
+          return 42;
+        },
+      );
+
+      final entity = AssetEntity(
+        id: 'asset-id',
+        typeInt: AssetType.image.index,
+        width: 1,
+        height: 1,
+      );
+
+      await expectLater(
+        entity.durationWithOptions(withSubtype: true, onlyLocal: true),
+        completion(42),
+      );
+      expect(capturedCall?.method, PMConstants.mGetDurationWithOptions);
+      expect(capturedCall?.arguments['onlyLocal'], isTrue);
+    },
+    skip: !(Platform.isIOS || Platform.isMacOS),
+  );
+
+  test(
     'darwin.getAdjustmentData forwards to the getAdjustmentData channel method',
     () async {
       MethodCall? capturedCall;
@@ -137,11 +223,45 @@ void main() {
         height: 1,
       );
 
-      await expectLater(entity.darwin.getAdjustmentData(), completion(payload));
+      await expectLater(
+        entity.darwin.getAdjustmentData(onlyLocal: true),
+        completion(payload),
+      );
       expect(capturedCall?.method, PMConstants.mGetAdjustmentData);
       expect(capturedCall?.arguments['id'], 'asset-id');
+      expect(capturedCall?.arguments['onlyLocal'], isTrue);
     },
     // The Darwin view and its plugin call assert on iOS/macOS only.
+    skip: !(Platform.isIOS || Platform.isMacOS),
+  );
+
+  test(
+    'darwin.getBaseFile forwards onlyLocal to the channel method',
+    () async {
+      MethodCall? capturedCall;
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(
+        const MethodChannel(PMConstants.channelPrefix),
+        (MethodCall call) async {
+          capturedCall = call;
+          return null;
+        },
+      );
+
+      final entity = AssetEntity(
+        id: 'asset-id',
+        typeInt: AssetType.image.index,
+        width: 1,
+        height: 1,
+      );
+
+      await expectLater(
+        entity.darwin.getBaseFile(onlyLocal: true),
+        completion(isNull),
+      );
+      expect(capturedCall?.method, PMConstants.mGetBaseAdjustmentFile);
+      expect(capturedCall?.arguments['onlyLocal'], isTrue);
+    },
     skip: !(Platform.isIOS || Platform.isMacOS),
   );
 

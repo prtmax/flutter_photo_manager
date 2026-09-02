@@ -684,8 +684,13 @@ In generally, a `PHAsset` will have three status:
   to provide a responsive user interface.
 
 To exclude iCloud-only assets from queries, set `onlyLocal: true` on a
-`FilterOptionGroup`. To prevent a file request from starting a network fetch,
-pass `onlyLocal: true` to `getFile`, `loadFile`, or `getOriginBytes`.
+`FilterOptionGroup`. To prevent a read request from starting a network fetch,
+pass `onlyLocal: true` to `getFile`, `loadFile`, `getOriginBytes`,
+`thumbnailDataWithSize`, or `thumbnailDataWithOption`. For Live Photo subtype
+duration and adjustment-data reads, pass `onlyLocal: true` to
+`durationWithOptions` and `asset.darwin.getAdjustmentData` respectively. The
+same option is available on `asset.darwin.getBaseFile`.
+For video or Live Photo media URLs, pass it to `getMediaUrl` as well.
 
 ### Entities change notify
 

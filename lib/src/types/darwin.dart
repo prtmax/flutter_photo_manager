@@ -74,7 +74,8 @@ class DarwinAsset {
   /// exported.
   ///
   ///  * [isOrigin] requests the original, full-resolution base resource.
-  ///  * [progressHandler] observes the (possibly network-bound) export progress.
+  ///  * [progressHandler] observes the export progress.
+  ///  * [onlyLocal] prevents iOS/macOS from downloading an iCloud-only asset.
   ///  * [darwinFileType] tries to define the export format, e.g. exporting a
   ///    MOV file to MP4.
   ///  * [cancelToken] cancels the export.
@@ -83,6 +84,7 @@ class DarwinAsset {
   ///  * [hasAdjustments] to check whether a distinct base version exists.
   Future<File?> getBaseFile({
     bool isOrigin = true,
+    bool onlyLocal = false,
     PMProgressHandler? progressHandler,
     PMDarwinAVFileType? darwinFileType,
     PMCancelToken? cancelToken,
@@ -90,6 +92,7 @@ class DarwinAsset {
     final String? path = await plugin.getBaseAdjustmentFile(
       _asset.id,
       isOrigin: isOrigin,
+      onlyLocal: onlyLocal,
       progressHandler: progressHandler,
       darwinFileType: darwinFileType,
       cancelToken: cancelToken,
@@ -107,15 +110,18 @@ class DarwinAsset {
   /// [getBaseFile] (the unedited base image) and [AssetEntity.file] (the
   /// rendered result) to reconstruct a non-destructive editing pipeline.
   ///
-  ///  * [progressHandler] observes the (possibly network-bound) export progress.
+  ///  * [progressHandler] observes the export progress.
+  ///  * [onlyLocal] prevents iOS/macOS from downloading an iCloud-only asset.
   ///
   /// See also:
   ///  * [hasAdjustments] to cheaply check whether adjustment data exists.
   Future<typed_data.Uint8List?> getAdjustmentData({
+    bool onlyLocal = false,
     PMProgressHandler? progressHandler,
   }) {
     return plugin.getAdjustmentData(
       _asset.id,
+      onlyLocal: onlyLocal,
       progressHandler: progressHandler,
     );
   }

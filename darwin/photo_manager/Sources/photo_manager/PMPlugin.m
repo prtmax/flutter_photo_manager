@@ -498,10 +498,12 @@
     } else if ([call.method isEqualToString:@"getThumb"]) {
         NSString *assetId = call.arguments[@"id"];
         NSDictionary *dict = call.arguments[@"option"];
+        BOOL onlyLocal = [call.arguments[@"onlyLocal"] boolValue];
         PMProgressHandler *progressHandler = [self getProgressHandlerFromDict:call.arguments];
         PMThumbLoadOption *option = [PMThumbLoadOption optionDict:dict];
         [manager getThumbWithId:assetId
                          option:option
+                      onlyLocal:onlyLocal
                   resultHandler:handler
                 progressHandler:progressHandler];
     } else if ([call.method isEqualToString:@"getFullFile"]) {
@@ -648,7 +650,11 @@
     } else if ([call.method isEqualToString:@"getDurationWithOptions"]) {
         NSString *assetId = call.arguments[@"id"];
         int subtype = [call.arguments[@"subtype"] intValue];
-        [manager getDurationWithOptions:assetId subtype:subtype resultHandler:handler];
+        BOOL onlyLocal = [call.arguments[@"onlyLocal"] boolValue];
+        [manager getDurationWithOptions:assetId
+                               subtype:subtype
+                            onlyLocal:onlyLocal
+                         resultHandler:handler];
     } else if ([call.method isEqualToString:@"getTitleAsync"]) {
         NSString *assetId = call.arguments[@"id"];
         int subtype = [call.arguments[@"subtype"] intValue];
@@ -668,8 +674,10 @@
         NSString *mimeType = [manager getMimeTypeAsyncWithAssetId:assetId];
         [handler reply:mimeType];
     } else if ([@"getMediaUrl" isEqualToString:call.method]) {
+        BOOL onlyLocal = [call.arguments[@"onlyLocal"] boolValue];
         PMProgressHandler *progressHandler = [self getProgressHandlerFromDict:call.arguments];
         [manager getMediaUrl:call.arguments[@"id"]
+                 onlyLocal:onlyLocal
                resultHandler:handler
              progressHandler:progressHandler];
     } else if ([@"fetchEntityProperties" isEqualToString:call.method]) {
@@ -702,17 +710,21 @@
     } else if ([@"getBaseAdjustmentFile" isEqualToString:call.method]) {
         NSString *assetId = call.arguments[@"id"];
         BOOL isOrigin = [call.arguments[@"isOrigin"] boolValue];
+        BOOL onlyLocal = [call.arguments[@"onlyLocal"] boolValue];
         AVFileType fileType = [PMConvertUtils convertNumberToAVFileType:[call.arguments[@"darwinFileType"] intValue]];
         PMProgressHandler *progressHandler = [self getProgressHandlerFromDict:call.arguments];
         [manager getBaseAdjustmentFileWithId:assetId
                                     isOrigin:isOrigin
+                                   onlyLocal:onlyLocal
                                     fileType:fileType
                                resultHandler:handler
                              progressHandler:progressHandler];
     } else if ([@"getAdjustmentData" isEqualToString:call.method]) {
         NSString *assetId = call.arguments[@"id"];
+        BOOL onlyLocal = [call.arguments[@"onlyLocal"] boolValue];
         PMProgressHandler *progressHandler = [self getProgressHandlerFromDict:call.arguments];
         [manager getAdjustmentDataWithId:assetId
+                              onlyLocal:onlyLocal
                            resultHandler:handler
                          progressHandler:progressHandler];
     } else if ([@"getParentPath" isEqualToString:call.method]) {

@@ -262,12 +262,14 @@ class PhotoManagerPlugin with BasePlugin, IosPlugin, AndroidPlugin, OhosPlugin {
   Future<typed_data.Uint8List?> getThumbnail({
     required String id,
     required ThumbnailOption option,
+    bool onlyLocal = false,
     PMProgressHandler? progressHandler,
     PMCancelToken? cancelToken,
   }) {
     final Map<String, dynamic> params = <String, dynamic>{
       'id': id,
       'option': option.toMap(),
+      'onlyLocal': onlyLocal,
     };
     _injectProgressHandlerParams(params, progressHandler);
     _setCancelToken(params, cancelToken);
@@ -554,13 +556,18 @@ class PhotoManagerPlugin with BasePlugin, IosPlugin, AndroidPlugin, OhosPlugin {
 
   Future<String?> getMediaUrl(
     AssetEntity entity, {
+    bool onlyLocal = false,
     PMProgressHandler? progressHandler,
     PMCancelToken? cancelToken,
   }) async {
     if (PlatformUtils.isOhos) {
       return entity.id;
     }
-    final params = <String, dynamic>{'id': entity.id, 'type': entity.typeInt};
+    final params = <String, dynamic>{
+      'id': entity.id,
+      'type': entity.typeInt,
+      'onlyLocal': onlyLocal,
+    };
     _injectProgressHandlerParams(params, progressHandler);
     _setCancelToken(params, cancelToken);
     return _channel.invokeMethod(PMConstants.mGetMediaUrl, params);
@@ -754,12 +761,20 @@ class PhotoManagerPlugin with BasePlugin, IosPlugin, AndroidPlugin, OhosPlugin {
     return ConvertUtils.convertToAssetList(result.cast());
   }
 
-  Future<int> getDurationWithOptions(String id, {int? subtype}) async {
+  Future<int> getDurationWithOptions(
+    String id, {
+    int? subtype,
+    bool onlyLocal = false,
+  }) async {
     if (Platform.isIOS || Platform.isMacOS) {
       if (subtype != null) {
         final result = await _channel.invokeMethod(
           PMConstants.mGetDurationWithOptions,
-          <String, dynamic>{'id': id, 'subtype': subtype},
+          <String, dynamic>{
+            'id': id,
+            'subtype': subtype,
+            'onlyLocal': onlyLocal,
+          },
         );
         return result as int;
       }
@@ -976,9 +991,11 @@ mixin IosPlugin on BasePlugin {
   /// Export the base (unedited) file of the asset with [id].
   ///
   /// Mirrors [getFullFile] but targets the base adjustment resource.
+  /// [onlyLocal] prevents iOS/macOS from downloading an iCloud-only asset.
   Future<String?> getBaseAdjustmentFile(
     String id, {
     bool isOrigin = true,
+    bool onlyLocal = false,
     PMProgressHandler? progressHandler,
     PMDarwinAVFileType? darwinFileType,
     PMCancelToken? cancelToken,
@@ -987,6 +1004,7 @@ mixin IosPlugin on BasePlugin {
     final params = <String, dynamic>{
       'id': id,
       'isOrigin': isOrigin,
+      'onlyLocal': onlyLocal,
       'darwinFileType': darwinFileType?.value ?? 0,
     };
     _injectProgressHandlerParams(params, progressHandler);
@@ -996,10 +1014,14 @@ mixin IosPlugin on BasePlugin {
 
   Future<typed_data.Uint8List?> getAdjustmentData(
     String id, {
+    bool onlyLocal = false,
     PMProgressHandler? progressHandler,
   }) async {
     assert(Platform.isIOS || Platform.isMacOS);
-    final params = <String, dynamic>{'id': id};
+    final params = <String, dynamic>{
+      'id': id,
+      'onlyLocal': onlyLocal,
+    };
     _injectProgressHandlerParams(params, progressHandler);
     return _channel.invokeMethod(PMConstants.mGetAdjustmentData, params);
   }

@@ -487,9 +487,19 @@ class AssetEntity {
   /// Obtain the duration with the given options.
   ///
   /// [withSubtype] only works on iOS/macOS.
-  Future<int> durationWithOptions({bool withSubtype = false}) async {
+  /// [onlyLocal] prevents iOS/macOS from downloading an iCloud-only Live
+  /// Photo when [withSubtype] is `true`.
+  /// It is ignored on Android and OpenHarmony.
+  Future<int> durationWithOptions({
+    bool withSubtype = false,
+    bool onlyLocal = false,
+  }) async {
     if (withSubtype) {
-      return plugin.getDurationWithOptions(id, subtype: subtype);
+      return plugin.getDurationWithOptions(
+        id,
+        subtype: subtype,
+        onlyLocal: onlyLocal,
+      );
     }
     return duration;
   }
@@ -673,6 +683,9 @@ class AssetEntity {
   /// See also:
   ///  * [thumbnailDataWithSize] which is a common method to obtain thumbnails.
   ///  * [thumbnailDataWithOption] which accepts customized [ThumbnailOption].
+  ///
+  /// Use one of the methods above with `onlyLocal: true` to prevent iCloud
+  /// downloads on iOS/macOS.
   Future<typed_data.Uint8List?> get thumbnailData => thumbnailDataWithSize(
         const ThumbnailSize.square(PMConstants.vDefaultThumbnailSize),
       );
@@ -681,6 +694,8 @@ class AssetEntity {
   ///
   /// {@macro photo_manager.thumbnailForVideos}
   ///
+  ///  * [onlyLocal] prevents iOS/macOS from downloading an iCloud-only asset.
+  ///    It is ignored on Android and OpenHarmony.
   /// See also:
   ///  * [thumbnailData] which obtain the thumbnail data with fixed size.
   ///  * [thumbnailDataWithOption] which accepts customized [ThumbnailOption].
@@ -689,6 +704,7 @@ class AssetEntity {
     ThumbnailSize size, {
     ThumbnailFormat format = ThumbnailFormat.jpeg,
     int quality = 100,
+    bool onlyLocal = false,
     PMProgressHandler? progressHandler,
     PMCancelToken? cancelToken,
     int frame = 0,
@@ -724,6 +740,7 @@ class AssetEntity {
 
     return thumbnailDataWithOption(
       option,
+      onlyLocal: onlyLocal,
       progressHandler: progressHandler,
       cancelToken: cancelToken,
     );
@@ -731,12 +748,15 @@ class AssetEntity {
 
   /// Obtain the thumbnail data with the given customized [ThumbnailOption].
   ///
+  ///  * [onlyLocal] prevents iOS/macOS from downloading an iCloud-only asset.
+  ///    It is ignored on Android and OpenHarmony.
   /// See also:
   ///  * [thumbnailData] which obtain the thumbnail data with fixed size.
   ///  * [thumbnailDataWithSize] which is a common method to obtain thumbnails.
   ///  * [cancelToken] is used to cancel the thumbnail loading process.
   Future<typed_data.Uint8List?> thumbnailDataWithOption(
     ThumbnailOption option, {
+    bool onlyLocal = false,
     PMProgressHandler? progressHandler,
     PMCancelToken? cancelToken,
   }) {
@@ -755,6 +775,7 @@ class AssetEntity {
     return plugin.getThumbnail(
       id: id,
       option: option,
+      onlyLocal: onlyLocal,
       progressHandler: progressHandler,
       cancelToken: cancelToken,
     );
@@ -810,16 +831,20 @@ class AssetEntity {
   ///
   ///  * [progressHandler] is used to handle the progress of the media URL loading process.
   ///  * [cancelToken] is used to cancel the media URL loading process.
+  ///  * [onlyLocal] prevents iOS/macOS from downloading an iCloud-only asset.
+  ///    It is ignored on Android and OpenHarmony.
   ///
   /// See also:
   ///  * https://developer.android.com/reference/android/content/ContentUris
   ///  * https://developer.apple.com/documentation/avfoundation/avurlasset
   Future<String?> getMediaUrl({
+    bool onlyLocal = false,
     PMProgressHandler? progressHandler,
     PMCancelToken? cancelToken,
   }) {
     return plugin.getMediaUrl(
       this,
+      onlyLocal: onlyLocal,
       progressHandler: progressHandler,
       cancelToken: cancelToken,
     );

@@ -45,7 +45,11 @@ typedef void (^AssetBlockResult)(PMAssetEntity *, NSObject *);
 
 - (void)clearCache;
 
-- (void)getThumbWithId:(NSString *)assetId option:(PMThumbLoadOption *)option resultHandler:(PMResultHandler *)handler progressHandler:(NSObject <PMProgressHandlerProtocol> *)progressHandler;
+- (void)getThumbWithId:(NSString *)assetId
+                option:(PMThumbLoadOption *)option
+             onlyLocal:(BOOL)onlyLocal
+         resultHandler:(PMResultHandler *)handler
+       progressHandler:(NSObject <PMProgressHandlerProtocol> *)progressHandler;
 
 - (void)getFullSizeFileWithId:(NSString *)assetId
                      isOrigin:(BOOL)isOrigin
@@ -99,6 +103,7 @@ typedef void (^AssetBlockResult)(PMAssetEntity *, NSObject *);
 
 - (void)getDurationWithOptions:(NSString *)assetId
                        subtype:(int)subtype
+                    onlyLocal:(BOOL)onlyLocal
                  resultHandler:(PMResultHandler *)handler;
 
 - (NSString*)getTitleAsyncWithAssetId:(NSString *)assetId
@@ -111,6 +116,7 @@ typedef void (^AssetBlockResult)(PMAssetEntity *, NSObject *);
 - (NSString*)getMimeTypeAsyncWithAssetId: (NSString *) assetId;
 
 - (void)getMediaUrl:(NSString *)assetId
+      onlyLocal:(BOOL)onlyLocal
       resultHandler:(PMResultHandler *)handler
     progressHandler:(NSObject <PMProgressHandlerProtocol> *)progressHandler;
 
@@ -125,8 +131,10 @@ typedef void (^AssetBlockResult)(PMAssetEntity *, NSObject *);
 - (BOOL)hasAdjustmentsWithId:(NSString *)assetId;
 
 /// Export the base (unedited) file of the asset with [assetId].
+/// Set [onlyLocal] to avoid downloading an iCloud-only resource.
 - (void)getBaseAdjustmentFileWithId:(NSString *)assetId
                            isOrigin:(BOOL)isOrigin
+                          onlyLocal:(BOOL)onlyLocal
                            fileType:(AVFileType)fileType
                       resultHandler:(PMResultHandler *)handler
                     progressHandler:(NSObject <PMProgressHandlerProtocol> *)progressHandler;
@@ -134,6 +142,7 @@ typedef void (^AssetBlockResult)(PMAssetEntity *, NSObject *);
 /// Export the raw AAE adjustment-data bytes of the asset with [assetId].
 /// Replies with `nil` when the asset has no adjustment data.
 - (void)getAdjustmentDataWithId:(NSString *)assetId
+                       onlyLocal:(BOOL)onlyLocal
                   resultHandler:(PMResultHandler *)handler
                 progressHandler:(NSObject <PMProgressHandlerProtocol> *)progressHandler;
 
