@@ -100,6 +100,30 @@ void main() {
     expect(capturedCall?.arguments['onlyLocal'], isTrue);
   });
 
+  test('file onlyLocal is forwarded to the channel', () async {
+    MethodCall? capturedCall;
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+      const MethodChannel(PMConstants.channelPrefix),
+      (MethodCall call) async {
+        capturedCall = call;
+        return 'C:/tmp/asset.jpg';
+      },
+    );
+
+    await expectLater(
+      PhotoManager.plugin.getFullFile(
+        'asset-id',
+        isOrigin: true,
+        onlyLocal: true,
+      ),
+      completion(isNotNull),
+    );
+    expect(capturedCall?.method, PMConstants.mGetFullFile);
+    expect(capturedCall?.arguments['onlyLocal'], isTrue);
+    expect(capturedCall?.arguments['isOrigin'], isTrue);
+  });
+
   test('Construct custom plugin', () async {
     final _TestPlugin testPlugin = _TestPlugin();
     PhotoManager.withPlugin(testPlugin);

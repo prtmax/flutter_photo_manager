@@ -46,12 +46,17 @@ static NSString *PMResourceTypeName(PHAssetResourceType type) {
 }
 
 @interface PMManager ()
+- (BOOL)isResourceLocallyAvailable:(PHAssetResource *)resource;
 - (BOOL)isAssetLocallyAvailableForFilter:(PHAsset *)asset;
 - (NSArray<PHAsset *> *)assetsFromFetchResult:(PHFetchResult<PHAsset *> *)result
                                    onlyLocal:(BOOL)onlyLocal;
 - (NSString *)copyLocalResourceToCache:(PHAssetResource *)resource
                                  asset:(PHAsset *)asset
                               isOrigin:(BOOL)isOrigin;
+- (NSString *)writeLocalImageResourceToFullFileCache:(PHAsset *)asset
+                                           candidates:(NSArray<PHAssetResource *> *)candidates;
+- (NSData *)readLocalThumbnailDataForAsset:(PHAsset *)asset
+                                    option:(PMThumbLoadOption *)option;
 @end
 
 @implementation PMManager {
@@ -83,21 +88,27 @@ static NSString *PMResourceTypeName(PHAssetResourceType type) {
     return self;
 }
 
-- (BOOL)isAssetLocallyAvailableForFilter:(PHAsset *)asset {
-    NSArray<PHAssetResource *> *resources = [asset candidateResourcesForFetch:YES
-                                                                      livePhoto:NO];
-    PHAssetResource *resource = resources.firstObject;
+- (BOOL)isResourceLocallyAvailable:(PHAssetResource *)resource {
     if (!resource) {
         return NO;
     }
-    BOOL photoKitLocal = NO;
     @try {
-        photoKitLocal = [[resource valueForKey:@"locallyAvailable"] boolValue];
+        return [[resource valueForKey:@"locallyAvailable"] boolValue];
     } @catch (NSException *exception) {
-        photoKitLocal = NO;
+        return NO;
     }
-    if (photoKitLocal) {
-        return YES;
+}
+
+- (BOOL)isAssetLocallyAvailableForFilter:(PHAsset *)asset {
+    NSArray<PHAssetResource *> *resources = [asset candidateResourcesForFetch:YES
+                                                                      livePhoto:NO];
+    if (resources.count == 0) {
+        return NO;
+    }
+    for (PHAssetResource *resource in resources) {
+        if ([self isResourceLocallyAvailable:resource]) {
+            return YES;
+        }
     }
 
     // A resource downloaded by this plugin is usable even if PhotoKit no
@@ -150,6 +161,12 @@ static NSString *PMResourceTypeName(PHAssetResourceType type) {
         return nil;
     }
     if (![localURL isKindOfClass:NSURL.class] || !localURL.isFileURL) {
+        return nil;
+    }
+    // `privateFileURL` can exist for an iCloud placeholder. Copying such a
+    // path may hydrate the file and trigger a network download, so the
+    // PhotoKit availability flag is a required guard for the only-local path.
+    if (![self isResourceLocallyAvailable:resource]) {
         return nil;
     }
     NSFileManager *fileManager = NSFileManager.defaultManager;
@@ -356,37 +373,40 @@ static NSString *PMResourceTypeName(PHAssetResourceType type) {
         return NO;
     }
     PHAsset *asset = result.firstObject;
-    if (@available(iOS 9.1, *)) {
-        if ((subtype & PHAssetMediaSubtypePhotoLive) == PHAssetMediaSubtypePhotoLive) {
-            resource = [asset getLivePhotosResource];
-        }
-    }
-    if (@available(macOS 14.0, *)) {
-        if ((subtype & PHAssetMediaSubtypePhotoLive) == PHAssetMediaSubtypePhotoLive) {
-            resource = [asset getLivePhotosResource];
-        }
-    }
     NSFileManager *fileManager = NSFileManager.defaultManager;
-    NSString *path = [self makeAssetOutputPath:asset
-                                      resource:resource
-                                      isOrigin:isOrigin
-                                      fileType:fileType
-                                       manager:fileManager];
-    BOOL isExist = [fileManager fileExistsAtPath:path];
-    [[PMLogUtils sharedInstance] info:[NSString stringWithFormat:@"Locally available for path %@: %hhd", path, isExist]];
-    if (isExist) {
-        return YES;
+    NSMutableArray<PHAssetResource *> *candidates = [NSMutableArray array];
+    BOOL isLivePhoto = NO;
+    if (@available(iOS 9.1, macOS 10.15, *)) {
+        isLivePhoto = (subtype & PHAssetMediaSubtypePhotoLive) == PHAssetMediaSubtypePhotoLive;
     }
-    if (!resource) {
-        resource = [asset getCurrentResource];
+    if (isLivePhoto) {
+        PHAssetResource *liveResource = [asset getLivePhotosResource];
+        if (liveResource) {
+            [candidates addObject:liveResource];
+        }
+    } else if (resource) {
+        [candidates addObject:resource];
     }
-    if (!resource) {
-        return NO;
+    [candidates addObjectsFromArray:[asset candidateResourcesForFetch:isOrigin
+                                                               livePhoto:isLivePhoto]];
+    for (PHAssetResource *candidate in candidates) {
+        NSString *path = [self makeAssetOutputPath:asset
+                                          resource:candidate
+                                          isOrigin:isOrigin
+                                          fileType:fileType
+                                           manager:fileManager];
+        if ([fileManager fileExistsAtPath:path]) {
+            [[PMLogUtils sharedInstance] info:[NSString stringWithFormat:
+                @"Locally available for cached path %@", path]];
+            return YES;
+        }
+        if ([self isResourceLocallyAvailable:candidate]) {
+            [[PMLogUtils sharedInstance] info:[NSString stringWithFormat:
+                @"Locally available for asset %@ resource %@", assetId, candidate]];
+            return YES;
+        }
     }
-    // If this returns NO, then the asset is in iCloud or not saved locally yet.
-    isExist = [[resource valueForKey:@"locallyAvailable"] boolValue];
-    [[PMLogUtils sharedInstance] info:[NSString stringWithFormat:@"Locally available for asset %@ resource %@: %hhd", assetId, resource, isExist]];
-    return isExist;
+    return NO;
 }
 
 #pragma clang diagnostic push
@@ -650,6 +670,32 @@ static NSString *PMResourceTypeName(PHAssetResourceType type) {
          onlyLocal:(BOOL)onlyLocal
      resultHandler:(PMResultHandler *)handler
    progressHandler:(NSObject <PMProgressHandlerProtocol> *)progressHandler {
+    if (onlyLocal) {
+        [self notifyProgress:progressHandler progress:0 state:PMProgressStatePrepare];
+        dispatch_async(_imageFileProcessingQueue, ^{
+            NSData *data = [self readLocalThumbnailDataForAsset:asset option:option];
+            dispatch_async(dispatch_get_main_queue(), ^{
+                if ([handler isReplied]) {
+                    return;
+                }
+                if (data) {
+                    id converted = [self.converter convertData:data];
+                    [handler reply:converted];
+                    [self notifySuccess:progressHandler];
+                } else {
+                    [self notifyProgress:progressHandler
+                                 progress:0
+                                    state:PMProgressStateFailed];
+                    [handler replyError:[NSError errorWithDomain:@"PMPhotoManager"
+                                                             code:-3
+                                                         userInfo:@{
+                        NSLocalizedDescriptionKey: @"The asset has no local thumbnail.",
+                    }]];
+                }
+            });
+        });
+        return;
+    }
     PHImageRequestOptions *requestOptions = [PHImageRequestOptions new];
     requestOptions.deliveryMode = option.deliveryMode;
     requestOptions.resizeMode = option.resizeMode;
@@ -732,6 +778,91 @@ static NSString *PMResourceTypeName(PHAssetResourceType type) {
         
         [strongSelf addRequstId:[handler getCancelToken] requestId:requestId];
     });
+}
+
+- (NSData *)readLocalThumbnailDataForAsset:(PHAsset *)asset
+                                    option:(PMThumbLoadOption *)option {
+    NSArray<PHAssetResource *> *candidates = [asset candidateResourcesForFetch:NO livePhoto:NO];
+    NSFileManager *fileManager = NSFileManager.defaultManager;
+    CGSize targetSize = [option makeSize];
+    CGFloat maxDimension = MAX(targetSize.width, targetSize.height);
+    if (maxDimension <= 0) {
+        maxDimension = 1024;
+    }
+
+    for (PHAssetResource *resource in candidates) {
+        NSURL *localURL = nil;
+        NSString *cachedPath = [self makeAssetOutputPath:asset
+                                                resource:resource
+                                                 isOrigin:NO
+                                                 fileType:nil
+                                                  manager:fileManager];
+        if ([fileManager fileExistsAtPath:cachedPath]) {
+            localURL = [NSURL fileURLWithPath:cachedPath];
+        } else {
+            if (![self isResourceLocallyAvailable:resource]) {
+                continue;
+            }
+            @try {
+                localURL = [resource valueForKey:@"privateFileURL"];
+            } @catch (NSException *exception) {
+                continue;
+            }
+            if (![localURL isKindOfClass:NSURL.class] || !localURL.isFileURL ||
+                ![fileManager fileExistsAtPath:localURL.path]) {
+                continue;
+            }
+        }
+
+        PMImage *image = nil;
+        if (asset.isVideo) {
+            AVAsset *videoAsset = [AVAsset assetWithURL:localURL];
+            AVAssetImageGenerator *generator =
+                [AVAssetImageGenerator assetImageGeneratorWithAsset:videoAsset];
+            generator.appliesPreferredTrackTransform = YES;
+            generator.maximumSize = CGSizeMake(maxDimension, maxDimension);
+            CMTime actualTime;
+            CGImageRef imageRef = [generator copyCGImageAtTime:kCMTimeZero
+                                                     actualTime:&actualTime
+                                                          error:nil];
+            if (imageRef) {
+#if TARGET_OS_IOS
+                image = [UIImage imageWithCGImage:imageRef];
+#else
+                image = [[NSImage alloc] initWithCGImage:imageRef size:NSZeroSize];
+#endif
+                CGImageRelease(imageRef);
+            }
+        } else {
+#if TARGET_OS_IOS
+            CGImageSourceRef source = CGImageSourceCreateWithURL(
+                (__bridge CFURLRef)localURL, NULL);
+            if (source) {
+                NSDictionary *thumbnailOptions = @{
+                    (id)kCGImageSourceCreateThumbnailFromImageAlways: @YES,
+                    (id)kCGImageSourceCreateThumbnailWithTransform: @YES,
+                    (id)kCGImageSourceThumbnailMaxPixelSize: @(maxDimension),
+                };
+                CGImageRef imageRef = CGImageSourceCreateThumbnailAtIndex(
+                    source, 0, (__bridge CFDictionaryRef)thumbnailOptions);
+                if (imageRef) {
+                    image = [UIImage imageWithCGImage:imageRef];
+                    CGImageRelease(imageRef);
+                }
+                CFRelease(source);
+            }
+#else
+            image = [[NSImage alloc] initWithContentsOfFile:localURL.path];
+#endif
+        }
+        NSData *data = [PMImageUtil convertToData:image
+                                       formatType:option.format
+                                          quality:option.quality];
+        if (data) {
+            return data;
+        }
+    }
+    return nil;
 }
 
 - (void)getFullSizeFileWithId:(NSString *)assetId
@@ -1357,6 +1488,29 @@ static NSString *PMResourceTypeName(PHAssetResourceType type) {
         return;
     }
 
+    if (onlyLocal && !fileType) {
+        NSArray<PHAssetResource *> *candidates =
+            [asset candidateResourcesForFetch:NO livePhoto:NO];
+        for (PHAssetResource *resource in candidates) {
+            NSString *localPath = [self copyLocalResourceToCache:resource
+                                                            asset:asset
+                                                         isOrigin:NO];
+            if (localPath) {
+                [self notifySuccess:progressHandler];
+                block(withScheme ? [NSURL fileURLWithPath:localPath].absoluteString
+                                 : localPath,
+                      nil);
+                return;
+            }
+        }
+        block(nil, [NSError errorWithDomain:@"PMPhotoManager"
+                                       code:-3
+                                   userInfo:@{
+            NSLocalizedDescriptionKey: @"The resource has no local file.",
+        }]);
+        return;
+    }
+
     PHVideoRequestOptions *options = [PHVideoRequestOptions new];
     [options setDeliveryMode:PHVideoRequestOptionsDeliveryModeAutomatic];
     [options setNetworkAccessAllowed:!onlyLocal];
@@ -1623,6 +1777,9 @@ static NSString *PMResourceTypeName(PHAssetResourceType type) {
     [path appendString:[PMHashUtils sha256FromString:asset.localIdentifier]];
     [path appendString:@"_exif"];
     [path appendString:@".jpg"];
+    if ([manager fileExistsAtPath:path]) {
+        return path;
+    }
     // createFileAtPath:contents: is atomic, but its BOOL return was previously
     // discarded — on failure the method returned a path to a non-existent file
     // that the caller replied with unconditionally. Surface the failure
@@ -1633,6 +1790,44 @@ static NSString *PMResourceTypeName(PHAssetResourceType type) {
         return nil;
     }
     return path;
+}
+
+- (NSString *)writeLocalImageResourceToFullFileCache:(PHAsset *)asset
+                                           candidates:(NSArray<PHAssetResource *> *)candidates {
+    for (PHAssetResource *resource in candidates) {
+        if (![self isResourceLocallyAvailable:resource]) {
+            continue;
+        }
+        NSURL *localURL = nil;
+        @try {
+            localURL = [resource valueForKey:@"privateFileURL"];
+        } @catch (NSException *exception) {
+            continue;
+        }
+        if (![localURL isKindOfClass:NSURL.class] || !localURL.isFileURL ||
+            ![NSFileManager.defaultManager fileExistsAtPath:localURL.path]) {
+            continue;
+        }
+#if TARGET_OS_IOS
+        PMImage *image = [UIImage imageWithContentsOfFile:localURL.path];
+#else
+        PMImage *image = [[NSImage alloc] initWithContentsOfFile:localURL.path];
+#endif
+        NSData *imageData = [PMImageUtil convertToData:image
+                                           formatType:PMThumbFormatTypeJPEG
+                                              quality:1.0];
+        if (!imageData) {
+            continue;
+        }
+        NSString *path = [self writeFullFileWithAssetId:asset imageData:imageData];
+        if (path) {
+            [[PMLogUtils sharedInstance] info:[NSString stringWithFormat:
+                @"onlyLocal converted local image resource %@ → %@",
+                resource.originalFilename, path]];
+            return path;
+        }
+    }
+    return nil;
 }
 
 - (BOOL)isImage:(PHAssetResource *)resource {
@@ -2037,6 +2232,26 @@ static NSString *PMResourceTypeName(PHAssetResourceType type) {
     
     __block double lastProgress = 0.0;
     [self notifyProgress:progressHandler progress:0 state:PMProgressStatePrepare];
+
+    if (onlyLocal) {
+        NSArray<PHAssetResource *> *candidates =
+            [asset candidateResourcesForFetch:NO livePhoto:NO];
+        NSString *path = [self writeLocalImageResourceToFullFileCache:asset
+                                                            candidates:candidates];
+        if (path) {
+            [self notifySuccess:progressHandler];
+            [handler reply:path];
+        } else {
+            [self notifyProgress:progressHandler progress:0 state:PMProgressStateFailed];
+            [handler replyError:[NSError errorWithDomain:@"PMPhotoManager"
+                                                     code:-3
+                                                 userInfo:@{
+                NSLocalizedDescriptionKey: @"The asset has no local image file.",
+            }]];
+        }
+        return;
+    }
+
     __weak typeof(self) weakSelf = self;
     [options setProgressHandler:^(double progress, NSError *error, BOOL *stop,
                                   NSDictionary *info) {
@@ -2772,6 +2987,34 @@ static NSString *PMResourceTypeName(PHAssetResourceType type) {
     }
     
     if (asset.isLivePhoto) {
+        if (onlyLocal) {
+            PHAssetResource *resource = [asset getLivePhotosResource];
+            NSURL *localURL = nil;
+            @try {
+                localURL = [resource valueForKey:@"privateFileURL"];
+            } @catch (NSException *exception) {
+                localURL = nil;
+            }
+            if ([self isResourceLocallyAvailable:resource] &&
+                [localURL isKindOfClass:NSURL.class] && localURL.isFileURL &&
+                [NSFileManager.defaultManager fileExistsAtPath:localURL.path]) {
+                AVAsset *videoAsset = [AVAsset assetWithURL:localURL];
+                CMTime duration = videoAsset.duration;
+                if (CMTIME_IS_NUMERIC(duration)) {
+                    [handler reply:@([PMConvertUtils roundDurationSeconds:
+                        CMTimeGetSeconds(duration)])];
+                } else {
+                    [handler replyError:@"The Live Photo has no local duration."];
+                }
+            } else {
+                [handler replyError:[NSError errorWithDomain:@"PMPhotoManager"
+                                                         code:-3
+                                                     userInfo:@{
+                    NSLocalizedDescriptionKey: @"The Live Photo has no local video.",
+                }]];
+            }
+            return;
+        }
         PHContentEditingInputRequestOptions *options = [PHContentEditingInputRequestOptions new];
         options.networkAccessAllowed = !onlyLocal;
         [asset requestContentEditingInputWithOptions:options completionHandler:^(PHContentEditingInput * _Nullable contentEditingInput, NSDictionary * _Nonnull info) {
@@ -2866,7 +3109,9 @@ static NSString *PMResourceTypeName(PHAssetResourceType type) {
             }
             PHAssetResource *resource = [asset getLivePhotosResource];
             NSURL *url = [resource valueForKey:@"privateFileURL"];
-            if (url && (!onlyLocal || [NSFileManager.defaultManager fileExistsAtPath:url.path])) {
+            if (url && (!onlyLocal ||
+                        ([self isResourceLocallyAvailable:resource] &&
+                         [NSFileManager.defaultManager fileExistsAtPath:url.path]))) {
                 [handler reply:url.absoluteString];
                 return;
             }
@@ -2878,7 +3123,9 @@ static NSString *PMResourceTypeName(PHAssetResourceType type) {
         if ((asset.mediaSubtypes & PHAssetMediaSubtypePhotoLive) == PHAssetMediaSubtypePhotoLive) {
             PHAssetResource *resource = [asset getLivePhotosResource];
             NSURL *url = [resource valueForKey:@"privateFileURL"];
-            if (url && (!onlyLocal || [NSFileManager.defaultManager fileExistsAtPath:url.path])) {
+            if (url && (!onlyLocal ||
+                        ([self isResourceLocallyAvailable:resource] &&
+                         [NSFileManager.defaultManager fileExistsAtPath:url.path]))) {
                 [handler reply:url.absoluteString];
                 return;
             }
@@ -3043,6 +3290,33 @@ static NSString *PMResourceTypeName(PHAssetResourceType type) {
         // resolves to `null` rather than an error.
         [self notifySuccess:progressHandler];
         [handler reply:nil];
+        return;
+    }
+
+    if (onlyLocal) {
+        NSURL *localURL = nil;
+        @try {
+            localURL = [resource valueForKey:@"privateFileURL"];
+        } @catch (NSException *exception) {
+            localURL = nil;
+        }
+        if (![self isResourceLocallyAvailable:resource] ||
+            ![localURL isKindOfClass:NSURL.class] || !localURL.isFileURL ||
+            ![NSFileManager.defaultManager fileExistsAtPath:localURL.path]) {
+            [handler replyError:[NSError errorWithDomain:@"PMPhotoManager"
+                                                     code:-3
+                                                 userInfo:@{
+                NSLocalizedDescriptionKey: @"The adjustment data is not local.",
+            }]];
+            return;
+        }
+        NSData *data = [NSData dataWithContentsOfURL:localURL
+                                             options:NSDataReadingMappedIfSafe];
+        if (data) {
+            [handler reply:data];
+        } else {
+            [handler replyError:@"Failed to read local adjustment data."];
+        }
         return;
     }
 

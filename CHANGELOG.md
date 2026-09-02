@@ -19,6 +19,8 @@ To know more about breaking changes, see the [Migration Guide][].
 **Fixes**
 
 - Fix failed cache writes leaving incomplete files that were later treated as valid cache entries (#1432).
+- Fix Darwin `onlyLocal` reads falling through to PhotoKit and waiting on iCloud;
+  local thumbnails and files now use a direct local-resource fast path.
 - Fix Android save/copy operations leaving visible incomplete MediaStore items when the write fails (#1434).
 - Fix Android thumbnail requests not deterministically releasing Glide resources (#1436).
 - Fix Android path-based saves leaking file descriptors by not closing inspection streams (#1438).
