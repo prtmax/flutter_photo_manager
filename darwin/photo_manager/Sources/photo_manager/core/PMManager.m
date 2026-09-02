@@ -1242,9 +1242,9 @@ static NSString *PMResourceTypeName(PHAssetResourceType type) {
     }
 
     if (onlyLocal && !fileType) {
-        NSString *localPath = [self copyLocalResourceToCache:imageResource
+        NSString *localPath = [self copyLocalResourceToCache:resource
                                                         asset:asset
-                                                     isOrigin:YES];
+                                                     isOrigin:isOrigin];
         if (localPath) {
             [self notifySuccess:progressHandler];
             block(localPath, nil);
