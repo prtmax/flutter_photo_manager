@@ -3310,8 +3310,7 @@ static NSString *PMResourceTypeName(PHAssetResourceType type) {
             }]];
             return;
         }
-        NSData *data = [NSData dataWithContentsOfURL:localURL
-                                             options:NSDataReadingMappedIfSafe];
+        NSData *data = [NSData dataWithContentsOfURL:localURL];
         if (data) {
             [handler reply:data];
         } else {
